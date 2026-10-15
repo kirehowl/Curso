@@ -1,0 +1,180 @@
+Aquí tienes el código listo para descargar. Puedes copiar el siguiente bloque de código, guardarlo en tu computadora con el nombre movimiento_inercial_movil.html (asegúrate de que la extensión sea .html y no .txt) y abrirlo en un servidor local seguro o subirlo a una plataforma con HTTPS para usarlo en tu móvil:
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Movimiento inercial del móvil</title>
+<style>
+:root{color-scheme:dark;--bg:#10151d;--panel:#1a2330;--line:#344255;--accent:#65d6ad;--text:#eef4fa;--muted:#aab8c8;--warn:#ffd27a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:760px;margin:auto;padding:20px 16px 40px}h1{font-size:1.55rem;line-height:1.2;margin:0 0 8px}p{color:var(--muted)}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+.actions{display:flex;gap:10px;flex-wrap:wrap}button{border:0;border-radius:10px;padding:12px 16px;font-weight:700;font-size:1rem;cursor:pointer;background:var(--accent);color:#102019}button.secondary{background:#344255;color:var(--text)}button:disabled{opacity:.45;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{padding:12px;border:1px solid var(--line);border-radius:10px;min-width:0}.label{font-size:.83rem;color:var(--muted)}.value{font-size:1.2rem;font-weight:700;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.status{padding:10px 12px;border-radius:8px;background:#253346;color:var(--text)}.warning{border-left:4px solid var(--warn)}small{color:var(--muted)}canvas{width:100%;height:190px;background:#0d1219;border-radius:10px;display:block}ul{padding-left:22px;color:var(--muted)}code{color:#bcebd9}
+</style>
+</head>
+<body>
+<main>
+  <h1>Movimiento inercial del móvil</h1>
+  <p>Lectura del acelerómetro y giroscopio para estimar movimiento relativo, sin solicitar acceso al GPS[span_1](start_span)[span_1](end_span).</p>
+  <div class="panel warning">
+    <strong>Importante: no calcula una ubicación geográfica[span_2](start_span)[span_2](end_span).</strong>
+    <p>El acelerómetro y el giroscopio no conocen por sí solos la latitud, longitud ni el punto de partida. Al integrar la aceleración, pequeños errores y vibraciones producen una deriva que crece rápidamente. Esta página muestra sensores y una estimación experimental de desplazamiento local, no una posición fiable para navegación[span_3](start_span)[span_3](end_span).</p>
+  </div>
+  <div class="panel">
+    <div id="status" class="status">Detenido. Pulsa «Iniciar sensores» y acepta el permiso si el navegador lo solicita[span_4](start_span)[span_4](end_span).</div>
+    <div class="actions" style="margin-top:12px">
+      <button id="start">Iniciar sensores</button>
+      <button id="stop" class="secondary" disabled>Detener</button>
+      <button id="reset" class="secondary">Reiniciar estimación</button>
+    </div>
+    <p><small>En algunos navegadores no aparece un diálogo de permisos: eso no significa necesariamente que el sensor esté bloqueado[span_5](start_span)[span_5](end_span).</small></p>
+    <div class="metric" style="margin-top:10px">
+      <div class="label">Diagnóstico del navegador</div>
+      <div class="value" id="diag" style="font-size:1rem">Pendiente de iniciar</div>
+      <div class="label" id="diagDetail" style="margin-top:6px">Se comprobará la disponibilidad de los sensores al iniciar[span_6](start_span)[span_6](end_span).</div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Datos del sensor</h2>
+    <div class="grid">
+      <div class="metric"><div class="label">Aceleración X (m/s²)</div><div class="value" id="ax">—</div></div>
+      <div class="metric"><div class="label">Aceleración Y (m/s²)</div><div class="value" id="ay">—</div></div>
+      <div class="metric"><div class="label">Aceleración Z (m/s²)</div><div class="value" id="az">—</div></div>
+      <div class="metric"><div class="label">Giroscopio α / giro Z (°/s)</div><div class="value" id="ra">—</div></div>
+      <div class="metric"><div class="label">Giroscopio β / giro X (°/s)</div><div class="value" id="rb">—</div></div>
+      <div class="metric"><div class="label">Giroscopio γ / giro Y (°/s)</div><div class="value" id="rg">—</div></div>
+      <div class="metric"><div class="label">Orientación absoluta α / β / γ (°)</div><div class="value" id="ori">—</div></div>
+      <div class="metric"><div class="label">Frecuencia aproximada</div><div class="value" id="hz">—</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Estimación de movimiento relativo</h2>
+    <div class="grid">
+      <div class="metric"><div class="label">Desplazamiento X (m)</div><div class="value" id="dx">0.000</div></div>
+      <div class="metric"><div class="label">Desplazamiento Y (m)</div><div class="value" id="dy">0.000</div></div>
+      <div class="metric"><div class="label">Velocidad X estimada (m/s)</div><div class="value" id="vx">0.000</div></div>
+      <div class="metric"><div class="label">Velocidad Y estimada (m/s)</div><div class="value" id="vy">0.000</div></div>
+    </div>
+    <p><small>La estimación usa la aceleración lineal que entrega el navegador y una integración numérica simple. Si el dispositivo no la proporciona, no se inventan valores ni se integra la aceleración con gravedad[span_7](start_span)[span_7](end_span).</small></p>
+    <canvas id="plot" width="700" height="190" aria-label="Trayectoria relativa estimada"></canvas>
+    <p><small>Gráfica de trayectoria relativa estimada; puede desviarse aunque el teléfono esté quieto[span_8](start_span)[span_8](end_span).</small></p>
+  </div>
+  <div class="panel">
+    <h2>Limitaciones y uso recomendado</h2>
+    <ul>
+      <li>Mantén el móvil con una orientación estable para que los ejes sean más interpretables[span_9](start_span)[span_9](end_span).</li>
+      <li>El movimiento estimado no es una ruta real ni sirve como coordenada de mapa[span_10](start_span)[span_10](end_span).</li>
+      <li>Para navegación sin GPS se requiere normalmente una posición inicial y ayudas externas, por ejemplo odometría de pasos, brújula, mapas, balizas o visión; aun así, existe deriva[span_11](start_span)[span_11](end_span).</li>
+      <li>Los datos se procesan localmente en esta página y no se envían a un servidor[span_12](start_span)[span_12](end_span).</li>
+    </ul>
+  </div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let running=false, lastT=null, count=0, lastHz=0, hzCount=0, hzStart=0, sensorTimeout=null, receivedMotion=false;
+  let vx=0, vy=0, dx=0, dy=0, points=[[0,0]], hasLinear=false;
+  const fmt=(v,n=3)=>Number.isFinite(v)?v.toFixed(n):'—';
+  function setStatus(s){$('status').textContent=s;}
+  function motion(e){
+    receivedMotion=true;
+    if(sensorTimeout){clearTimeout(sensorTimeout);sensorTimeout=null;}
+    const t=performance.now();
+    if(hzStart===0) hzStart=t;
+    hzCount++;
+    if(t-hzStart>=1000){lastHz=hzCount*1000/(t-hzStart);hzCount=0;hzStart=t;}
+    $('hz').textContent=fmt(lastHz,1)+' Hz';
+    const a=e.acceleration;
+    const displayA = (a && [a.x,a.y,a.z].some(v=>v!==null)) ? a : e.accelerationIncludingGravity;
+    if(displayA && [displayA.x,displayA.y,displayA.z].some(v=>v!==null)){
+      $('ax').textContent=fmt(displayA.x); $('ay').textContent=fmt(displayA.y); $('az').textContent=fmt(displayA.z);
+      $('diag').textContent='Evento de movimiento recibido';
+      $('diagDetail').textContent=(a && [a.x,a.y,a.z].some(v=>v!==null))
+        ? 'El navegador proporciona aceleración sin gravedad; se puede calcular una estimación experimental[span_13](start_span)[span_13](end_span).'
+        : 'Solo hay aceleración con gravedad. Se muestran las lecturas, pero no se integran para evitar una trayectoria falsa[span_14](start_span)[span_14](end_span).';
+      if(a && [a.x,a.y,a.z].some(v=>v!==null)){
+        hasLinear=true;
+        if(lastT!==null){
+          const dt=(t-lastT)/1000;
+          if(dt>0 && dt<0.12){
+            const ax=Number.isFinite(a.x)?a.x:0, ay=Number.isFinite(a.y)?a.y:0;
+            vx=(vx+ax*dt)*0.995; vy=(vy+ay*dt)*0.995;
+            dx+=vx*dt; dy+=vy*dt;
+            if(count%3===0){points.push([dx,dy]);if(points.length>500)points.shift();draw();}
+            $('vx').textContent=fmt(vx); $('vy').textContent=fmt(vy);
+            $('dx').textContent=fmt(dx); $('dy').textContent=fmt(dy);
+          }
+        }
+      }
+    } else {
+      $('ax').textContent='No disponible';$('ay').textContent='No disponible';$('az').textContent='No disponible';
+      $('diag').textContent='Evento recibido, sin valores de aceleración';
+      $('diagDetail').textContent='El navegador dispara el evento, pero no expone valores de aceleración[span_15](start_span)[span_15](end_span).';
+    }
+    const r=e.rotationRate;
+    if(r){$('ra').textContent=fmt(r.alpha);$('rb').textContent=fmt(r.beta);$('rg').textContent=fmt(r.gamma);}
+    else {$('ra').textContent='No disponible';$('rb').textContent='No disponible';$('rg').textContent='No disponible';}
+    lastT=t; count++;
+  }
+  function orientation(e){
+    $('ori').textContent=[e.alpha,e.beta,e.gamma].map(v=>fmt(v,1)).join(' / ');
+  }
+  function draw(){
+    const c=$('plot'),ctx=c.getContext('2d'),w=c.width,h=c.height;
+    ctx.clearRect(0,0,w,h);ctx.strokeStyle='#344255';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(w/2,8);ctx.lineTo(w/2,h-8);ctx.moveTo(8,h/2);ctx.lineTo(w-8,h/2);ctx.stroke();
+    if(points.length<2)return;
+    let max=1;for(const p of points)max=Math.max(max,Math.abs(p[0]),Math.abs(p[1]));
+    const scale=Math.min((w/2-18)/max,(h/2-18)/max);
+    ctx.strokeStyle='#65d6ad';ctx.lineWidth=2;ctx.beginPath();
+    points.forEach((p,i)=>{const x=w/2+p[0]*scale,y=h/2-p[1]*scale;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.stroke();
+    ctx.fillStyle='#eef4fa';ctx.beginPath();ctx.arc(w/2+dx*scale,h/2-dy*scale,4,0,Math.PI*2);ctx.fill();
+  }
+  async function start(){
+    if(!('DeviceMotionEvent' in window)){
+      setStatus('Este navegador no ofrece acceso a los sensores de movimiento. Abre el archivo en Chrome actualizado u otro navegador móvil compatible[span_16](start_span)[span_16](end_span).');return;
+    }
+    if(!window.isSecureContext && location.protocol !== 'file:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+      setStatus('El navegador bloquea los sensores porque esta página no está en un contexto seguro. Ábrela mediante HTTPS[span_17](start_span)[span_17](end_span).');return;
+    }
+    try{
+      if(typeof DeviceMotionEvent.requestPermission==='function'){
+        const p=await DeviceMotionEvent.requestPermission();
+        if(p!=='granted'){setStatus('El permiso de movimiento fue denegado por el navegador. Revisa los permisos del sitio[span_18](start_span)[span_18](end_span).');return;}
+      }
+      if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
+        const p=await DeviceOrientationEvent.requestPermission();
+        if(p!=='granted'){setStatus('El permiso de orientación fue denegado. El acelerómetro podría seguir disponible, pero no se leerá la orientación[span_19](start_span)[span_19](end_span).');}
+      }
+      receivedMotion=false;
+      window.addEventListener('devicemotion',motion);
+      window.addEventListener('deviceorientation',orientation);
+      running=true;$('start').disabled=true;$('stop').disabled=false;
+      setStatus('Solicitud iniciada. Esperando lecturas del sensor…[span_20](start_span)[span_20](end_span)');
+      sensorTimeout=setTimeout(()=>{
+        if(running && !receivedMotion){
+          setStatus('No llegan datos del sensor. Si abriste el HTML desde Descargas/una vista previa, prueba a servirlo desde HTTPS y abrirlo en Chrome. Revisa también que el navegador no tenga bloqueados los sensores[span_21](start_span)[span_21](end_span).');
+        } else if(running) {
+          setStatus('Sensores activos. Mueve el teléfono suavemente para observar los cambios[span_22](start_span)[span_22](end_span).');
+        }
+      },3000);
+    }catch(err){setStatus('No se pudieron activar los sensores: '+err.message+'. Prueba en Chrome y abre la página desde HTTPS; revisa los permisos del sitio[span_23](start_span)[span_23](end_span).');}
+  }
+  function stop(){
+    window.removeEventListener('devicemotion',motion);window.removeEventListener('deviceorientation',orientation);
+    running=false;lastT=null;if(sensorTimeout){clearTimeout(sensorTimeout);sensorTimeout=null;}$('start').disabled=false;$('stop').disabled=true;
+    setStatus('Sensores detenidos[span_24](start_span)[span_24](end_span).');
+  }
+  function reset(){
+    vx=vy=dx=dy=0;lastT=null;count=0;points=[[0,0]];
+    ['dx','dy','vx','vy'].forEach(id=>$(id).textContent='0.000');draw();
+  }
+  $('start').addEventListener('click',start);$('stop').addEventListener('click',stop);$('reset').addEventListener('click',reset);
+  draw();
+})();
+</script>
+</body>
+</html>
+
