@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#050507">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SpectraLab • Espectrograma Acústico</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter & JetBrains Mono para telemetría precisa -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <!-- Manifest PWA embebido dinámicamente vía JS más abajo -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        oled: '#030305',
+                        surface: '#0d0e12',
+                        surfaceLight: '#161821',
+                        accent: '#f97316',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Ajustes base para evitar rebote elástico en iOS/Android y optimizar pantallas OLED */
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100dvh;
+            overflow: hidden;
+            background-color: #030305;
+            color: #f4f4f6;
+            overscroll-behavior: none;
+        }
+
+        /* Estilo personalizado para sliders táctiles ergonómicos */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-runnable-track {
+            height: 6px;
+            border-radius: 999px;
+            background: #222531;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 22px;
+            width: 22px;
+            border-radius: 50%;
+            background: #f97316;
+            border: 2px solid #ffffff;
+            margin-top: -8px;
+            box-shadow: 0 2px 8px rgba(249, 115, 22, 0.5);
+            transition: transform 0.1s ease;
+        }
+
+        input[type="range"]:active::-webkit-slider-thumb {
+            transform: scale(1.18);
+        }
+
+        /* Animación sutil de pulso para estado en vivo */
+        @keyframes pulse-live {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+        .live-dot {
+            animation: pulse-live 1.5s infinite ease-in-out;
+        }
+
+        /* Safe areas para dispositivos con notch o barra gestual */
+        .pt-safe { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+        .pb-safe { padding-bottom: max(0.65rem, env(safe-area-inset-bottom)); }
+    </style>
+</head>
+<body class="flex flex-col justify-between bg-oled text-zinc-100 font-sans">
+
+    <!-- ==================== BARRA SUPERIOR COMPACTA (TELEMETRÍA) ==================== -->
+    <header class="w-full bg-surface/95 border-b border-zinc-800/80 px-3 py-2 pt-safe flex items-center justify-between z-20 shrink-0">
+        <!-- Logo y Estado -->
+        <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-rose-600 flex items-center justify-center shadow-md shadow-orange-500/20">
+                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+            </div>
+            <div>
+                <div class="flex items-center gap-1.5">
+                    <h1 class="text-xs font-bold tracking-wider uppercase text-zinc-100">SpectraLab</h1>
+                    <span id="statusBadge" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-zinc-800 text-zinc-400">
+                        <span id="statusDot" class="w-1.5 h-1.5 rounded-full bg-zinc-500"></span>
+                        <span id="statusText">LISTO</span>
+                    </span>
+                </div>
+                <p id="sampleRateText" class="text-[10px] font-mono text-zinc-500 leading-none mt-0.5">48.0 kHz • FFT 2048</p>
+            </div>
+        </div>
+
+        <!-- Indicadores en tiempo real: Pico Hz, Nota y dB -->
+        <div class="flex items-center gap-2 sm:gap-3 bg-oled/80 px-2.5 py-1 rounded-xl border border-zinc-800/80">
+            <div class="text-right">
+                <span class="block text-[9px] uppercase tracking-wider text-zinc-500">Pico Freq</span>
+                <span id="peakFreqDisplay" class="font-mono text-xs sm:text-sm font-bold text-orange-400">--- Hz</span>
+            </div>
+            <div class="h-5 w-[1px] bg-zinc-800"></div>
+            <div class="text-center min-w-[36px]">
+                <span class="block text-[9px] uppercase tracking-wider text-zinc-500">Nota</span>
+                <span id="peakNoteDisplay" class="font-mono text-xs sm:text-sm font-bold text-emerald-400">--</span>
+            </div>
+            <div class="h-5 w-[1px] bg-zinc-800"></div>
+            <div class="text-right min-w-[44px]">
+                <span class="block text-[9px] uppercase tracking-wider text-zinc-500">Nivel</span>
+                <span id="peakDbDisplay" class="font-mono text-xs sm:text-sm font-bold text-sky-400">-∞ dB</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ==================== ÁREA PRINCIPAL DEL ESPECTROGRAMA (75%+ VIEWPORT) ==================== -->
+    <main id="canvasContainer" class="relative flex-1 w-full bg-oled overflow-hidden touch-none">
+        <!-- Canvas principal del espectrograma en cascada -->
+        <canvas id="spectrogramCanvas" class="block w-full h-full"></canvas>
+        
+        <!-- Canvas superpuesto para la escala de frecuencias, retículo táctil y HUD -->
+        <canvas id="overlayCanvas" class="absolute inset-0 block w-full h-full pointer-events-none"></canvas>
+
+        <!-- Barra de leyenda de color (dB min -> max) discreta en esquina superior izquierda -->
+        <div class="absolute top-2.5 left-2.5 pointer-events-none flex items-center gap-1.5 bg-oled/75 backdrop-blur-sm px-2 py-1 rounded-lg border border-zinc-800/70">
+            <span id="legendMinDb" class="font-mono text-[10px] text-zinc-400">-90dB</span>
+            <div id="colorLegendBar" class="w-16 h-2 rounded-full"></div>
+            <span id="legendMaxDb" class="font-mono text-[10px] text-zinc-200">-15dB</span>
+        </div>
+
+        <!-- Botón flotante rápido para dirección de cascada (Horizontal / Vertical) -->
+        <button id="btnDirection" title="Cambiar dirección de cascada" class="absolute top-2.5 right-14 bg-surface/85 hover:bg-surfaceLight active:scale-95 backdrop-blur-sm text-zinc-300 border border-zinc-700/70 rounded-lg px-2 py-1 text-[11px] font-mono flex items-center gap-1 transition">
+            <svg id="dirIcon" class="w-3.5 h-3.5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            <span id="dirLabel">HOR</span>
+        </button>
+
+        <!-- Toast / Notificación flotante no intrusiva (reemplaza alert) -->
+        <div id="toastNotification" class="hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-zinc-900/95 border border-zinc-700 text-zinc-100 px-4 py-2 rounded-full shadow-xl text-xs font-medium flex items-center gap-2 transition-all duration-300">
+            <span id="toastIcon" class="w-2 h-2 rounded-full bg-orange-500"></span>
+            <span id="toastMessage">Mensaje</span>
+        </div>
+
+        <!-- ==================== PANTALLA DE INICIO / BIENVENIDA OVERLAY ==================== -->
+        <div id="welcomeOverlay" class="absolute inset-0 z-30 bg-oled/92 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center transition-opacity duration-300">
+            <div class="max-w-sm w-full bg-surface border border-zinc-800/90 rounded-3xl p-6 shadow-2xl">
+                <!-- Icono animado de ondas -->
+                <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-orange-500/20 to-rose-500/20 border border-orange-500/30 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                </div>
+
+                <h2 class="text-xl font-bold text-white mb-1.5">Analizador Espectral</h2>
+                <p class="text-xs text-zinc-400 leading-relaxed mb-6">
+                    Visualiza el espectro acústico en tiempo real con precisión de estudio. Toca o arrastra sobre la pantalla para medir frecuencias y notas musicales.
+                </p>
+
+                <!-- Mensaje de error amigable si falla el micrófono -->
+                <div id="errorBox" class="hidden mb-4 p-3 rounded-xl bg-rose-950/60 border border-rose-800/70 text-left">
+                    <p class="text-xs font-semibold text-rose-300 mb-0.5">No se pudo acceder al micrófono</p>
+                    <p id="errorDetail" class="text-[11px] text-rose-200/80 leading-snug">Verifica los permisos de audio en tu navegador o prueba el modo demostración.</p>
+                </div>
+
+                <!-- Botón Principal: Activar Micrófono -->
+                <button id="btnStartMic" class="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-orange-500 to-rose-600 hover:from-orange-400 hover:to-rose-500 active:scale-[0.98] text-white font-semibold text-sm shadow-lg shadow-orange-600/30 flex items-center justify-center gap-2.5 transition mb-3">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                    <span>Activar Micrófono</span>
+                </button>
+
+                <!-- Botón Secundario: Modo Demo (Generador de Tonos) -->
+                <button id="btnStartDemo" class="w-full py-3 px-4 rounded-2xl bg-surfaceLight hover:bg-zinc-800 active:scale-[0.98] text-zinc-200 border border-zinc-700/80 font-medium text-xs flex items-center justify-center gap-2 transition">
+                    <svg class="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span>Modo Demo (Sintetizador de Prueba)</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- ==================== PANEL DE AJUSTES DESPLEGABLE (SLIDERS Y PARÁMETROS) ==================== -->
+    <section id="settingsDrawer" class="hidden w-full bg-surface border-t border-zinc-800 px-4 py-3 z-20 shrink-0 transition-all">
+        <div class="max-w-lg mx-auto space-y-3">
+            <!-- Control de Ganancia / Sensibilidad -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label for="gainSlider" class="text-[11px] font-medium text-zinc-300 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                        </svg>
+                        Sensibilidad / Ganancia Visual
+                    </label>
+                    <span id="gainValueLabel" class="font-mono text-xs text-orange-400 font-semibold">+0 dB</span>
+                </div>
+                <input id="gainSlider" type="range" min="-25" max="35" step="1" value="0" class="w-full">
+            </div>
+
+            <!-- Selectores rápidos: Paleta, Escala y FFT Size -->
+            <div class="grid grid-cols-3 gap-2 pt-1">
+                <!-- Paleta de Colores -->
+                <div>
+                    <label class="block text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Paleta</label>
+                    <select id="paletteSelect" class="w-full bg-surfaceLight border border-zinc-700 rounded-xl px-2 py-2 text-xs text-zinc-100 focus:outline-none focus:border-orange-500">
+                        <option value="magma">Magma / Fuego</option>
+                        <option value="viridis">Viridis / Océano</option>
+                        <option value="phosphor">Verde Fósforo</option>
+                        <option value="grayscale">Escala Grises</option>
+                    </select>
+                </div>
+
+                <!-- Escala de Frecuencia -->
+                <div>
+                    <label class="block text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Escala Hz</label>
+                    <select id="scaleSelect" class="w-full bg-surfaceLight border border-zinc-700 rounded-xl px-2 py-2 text-xs text-zinc-100 focus:outline-none focus:border-orange-500">
+                        <option value="log" selected>Logarítmica</option>
+                        <option value="linear">Lineal</option>
+                    </select>
+                </div>
+
+                <!-- Tamaño FFT -->
+                <div>
+                    <label class="block text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Resolución FFT</label>
+                    <select id="fftSelect" class="w-full bg-surfaceLight border border-zinc-700 rounded-xl px-2 py-2 text-xs text-zinc-100 focus:outline-none focus:border-orange-500">
+                        <option value="512">512 (Rápido)</option>
+                        <option value="1024">1024</option>
+                        <option value="2048" selected>2048 (Std)</option>
+                        <option value="4096">4096 (Alta)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== BARRA INFERIOR ERGONÓMICA (ACCESO CON EL PULGAR) ==================== -->
+    <footer class="w-full bg-surface border-t border-zinc-800/90 px-3 pt-2 pb-safe z-20 shrink-0">
+        <div class="max-w-lg mx-auto flex items-center justify-between gap-2">
+            
+            <!-- Botón Fuente (Mic / Demo) -->
+            <button id="btnToggleSource" class="flex-1 py-2.5 px-2 rounded-2xl bg-surfaceLight hover:bg-zinc-800 active:scale-95 border border-zinc-700/70 flex flex-col items-center justify-center gap-0.5 transition">
+                <svg id="sourceIcon" class="w-5 h-5 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+                <span id="sourceLabel" class="text-[10px] font-medium text-zinc-300">Micrófono</span>
+            </button>
+
+            <!-- Botón Principal: Congelar / Reanudar (Freeze) -->
+            <button id="btnFreeze" class="flex-[1.4] py-2.5 px-3 rounded-2xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white font-semibold shadow-lg shadow-orange-500/25 flex flex-col items-center justify-center gap-0.5 transition">
+                <svg id="freezeIcon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span id="freezeLabel" class="text-[11px] font-bold tracking-wide">Congelar</span>
+            </button>
+
+            <!-- Botón Capturar PNG -->
+            <button id="btnSnapshot" class="flex-1 py-2.5 px-2 rounded-2xl bg-surfaceLight hover:bg-zinc-800 active:scale-95 border border-zinc-700/70 flex flex-col items-center justify-center gap-0.5 transition">
+                <svg class="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span class="text-[10px] font-medium text-zinc-300">Capturar</span>
+            </button>
+
+            <!-- Botón Ajustes (Despliega sliders y opciones) -->
+            <button id="btnSettings" class="flex-1 py-2.5 px-2 rounded-2xl bg-surfaceLight hover:bg-zinc-800 active:scale-95 border border-zinc-700/70 flex flex-col items-center justify-center gap-0.5 transition">
+                <svg class="w-5 h-5 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+                <span class="text-[10px] font-medium text-zinc-300">Ajustes</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- ==================== LÓGICA DE AUDIO, RENDERIZADO Y PWA ==================== -->
+    <script>
+        /**
+         * 1. CONFIGURACIÓN PWA DINÁMICA (Manifest + Service Worker inline para modo instalable)
+         */
+        (function setupPWA() {
+            const manifest = {
+                name: "SpectraLab - Espectrograma Acústico",
+                short_name: "SpectraLab",
+                start_url: ".",
+                display: "standalone",
+                background_color: "#030305",
+                theme_color: "#030305",
+                orientation: "any",
+                icons: [{
+                    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%23f97316'/%3E%3Cpath d='M120 340v-168m68 210v-252m68 290v-330m68 260v-190m68 130v-70' stroke='%23fff' stroke-width='36' stroke-linecap='round'/%3E%3C/svg%3E",
+                    sizes: "512x512",
+                    type: "image/svg+xml"
+                }]
+            };
+            const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+            const link = document.createElement('link');
+            link.rel = 'manifest';
+            link.href = URL.createObjectURL(blob);
+            document.head.appendChild(link);
+        })();
+
+        /**
+         * 2. ESTADO GLOBAL DE LA APLICACIÓN
+         */
+        const state = {
+            isRunning: false,
+            isFrozen: false,
+            mode: 'none', // 'mic' | 'demo'
+            fftSize: 2048,
+            scale: 'log', // 'log' | 'linear'
+            palette: 'magma',
+            direction: 'horizontal', // 'horizontal' (der -> izq) | 'vertical' (abajo -> arriba)
+            gainOffsetDb: 0, // Ajuste de sensibilidad en dB
+            minDb: -95,
+            maxDb: -15,
+            minFreq: 30,
+            maxFreq: 20000,
+            sampleRate: 48000,
+            // Coordenadas del retículo táctil
+            crosshair: {
+                active: false,
+                x: 0,
+                y: 0
+            }
+        };
+
+        // Referencias Web Audio API
+        let audioCtx = null;
+        let analyser = null;
+        let mediaStream = null;
+        let sourceNode = null;
+        let demoNodes = [];
+        let demoInterval = null;
+        let freqDataArray = null;
+        let animationFrameId = null;
+
+        // Referencias DOM y Canvas
+        const container = document.getElementById('canvasContainer');
+        const specCanvas = document.getElementById('spectrogramCanvas');
+        const specCtx = specCanvas.getContext('2d', { alpha: false, desynchronized: true });
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const overlayCtx = overlayCanvas.getContext('2d');
+
+        // Canvas auxiliar fuera de pantalla para desplazar la cascada a 60fps sin pérdida de nitidez
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d', { alpha: false });
+
+        // Tabla LUT (Look-Up Table) de 256 colores RGBA precalculados para máximo rendimiento móvil
+        const colorLUT = new Uint8ClampedArray(256 * 4);
+
+        /**
+         * 3. PALETAS DE COLOR DE ALTA PRECISIÓN (256 NIVELES)
+         */
+        const PALETTES = {
+            magma: [
+                [0.0,  [3, 3, 8]],
+                [0.18, [45, 11, 89]],
+                [0.38, [130, 32, 108]],
+                [0.58, [212, 66, 66]],
+                [0.78, [249, 145, 32]],
+                [0.92, [252, 225, 105]],
+                [1.0,  [255, 255, 255]]
+            ],
+            viridis: [
+                [0.0,  [8, 12, 36]],
+                [0.22, [44, 52, 115]],
+                [0.45, [33, 132, 141]],
+                [0.70, [68, 191, 112]],
+                [0.90, [189, 223, 38]],
+                [1.0,  [253, 231, 37]]
+            ],
+            phosphor: [
+                [0.0,  [2, 8, 4]],
+                [0.25, [6, 48, 22]],
+                [0.55, [16, 135, 58]],
+                [0.82, [52, 235, 105]],
+                [1.0,  [210, 255, 220]]
+            ],
+            grayscale: [
+                [0.0,  [4, 4, 6]],
+                [0.5,  [125, 125, 130]],
+                [1.0,  [255, 255, 255]]
+            ]
+        };
+
+        function buildColorLUT(paletteName) {
+            const stops = PALETTES[paletteName] || PALETTES.magma;
+            const gradientStops = [];
+
+            for (let i = 0; i < 256; i++) {
+                const t = i / 255;
+                let s0 = stops[0];
+                let s1 = stops[stops.length - 1];
+
+                for (let j = 0; j < stops.length - 1; j++) {
+                    if (t >= stops[j][0] && t <= stops[j + 1][0]) {
+                        s0 = stops[j];
+                        s1 = stops[j + 1];
+                        break;
+                    }
+                }
+
+                const range = (s1[0] - s0[0]) || 1;
+                const localT = (t - s0[0]) / range;
+
+                const r = Math.round(s0[1][0] + (s1[1][0] - s0[1][0]) * localT);
+                const g = Math.round(s0[1][1] + (s1[1][1] - s0[1][1]) * localT);
+                const b = Math.round(s0[1][2] + (s1[1][2] - s0[1][2]) * localT);
+
+                colorLUT[i * 4] = r;
+                colorLUT[i * 4 + 1] = g;
+                colorLUT[i * 4 + 2] = b;
+                colorLUT[i * 4 + 3] = 255;
+
+                if (i % 32 === 0 || i === 255) {
+                    gradientStops.push(`rgb(${r},${g},${b})`);
+                }
+            }
+
+            // Actualizar barra de leyenda visual
+            document.getElementById('colorLegendBar').style.background = `linear-gradient(to right, ${gradientStops.join(', ')})`;
+        }
+
+        /**
+         * 4. CONVERSIÓN DE FRECUENCIAS, COORDENADAS Y NOTAS MUSICALES
+         */
+        const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+        function freqToNote(freq) {
+            if (freq < 20 || freq > 20000) return '--';
+            const noteNum = 12 * (Math.log(freq / 440) / Math.LN2);
+            const midi = Math.round(noteNum) + 69;
+            if (midi < 0 || midi > 127) return '--';
+            const name = NOTE_NAMES[midi % 12];
+            const octave = Math.floor(midi / 12) - 1;
+            return `${name}${octave}`;
+        }
+
+        function formatFreq(freq) {
+            if (freq >= 1000) {
+                return `${(freq / 1000).toFixed(freq >= 10000 ? 1 : 2)} kHz`;
+            }
+            return `${Math.round(freq)} Hz`;
+        }
+
+        // Convierte una fracción normalizada [0..1] (0 = grave, 1 = agudo) a Frecuencia en Hz
+        function normToFreq(norm) {
+            const clamped = Math.max(0, Math.min(1, norm));
+            const maxF = Math.min(state.maxFreq, state.sampleRate / 2);
+            if (state.scale === 'log') {
+                const minLog = Math.log10(state.minFreq);
+                const maxLog = Math.log10(maxF);
+                return Math.pow(10, minLog + clamped * (maxLog - minLog));
+            } else {
+                return state.minFreq + clamped * (maxF - state.minFreq);
+            }
+        }
+
+        // Convierte una Frecuencia en Hz a fracción normalizada [0..1]
+        function freqToNorm(freq) {
+            const maxF = Math.min(state.maxFreq, state.sampleRate / 2);
+            if (freq <= state.minFreq) return 0;
+            if (freq >= maxF) return 1;
+            if (state.scale === 'log') {
+                const minLog = Math.log10(state.minFreq);
+                const maxLog = Math.log10(maxF);
+                return (Math.log10(freq) - minLog) / (maxLog - minLog);
+            } else {
+                return (freq - state.minFreq) / (maxF - state.minFreq);
+            }
+        }
+
+        /**
+         * 5. GESTIÓN DE TAMAÑO Y RETINA / AMOLED (devicePixelRatio)
+         */
+        let logicalWidth = 0;
+        let logicalHeight = 0;
+        let dpr = 1;
+
+        function resizeCanvases() {
+            const rect = container.getBoundingClientRect();
+            dpr = Math.min(window.devicePixelRatio || 1, 2.5); // Cap a 2.5 para mantener 60fps estables en pantallas 3x/4x
+            logicalWidth = rect.width;
+            logicalHeight = rect.height;
+
+            const pixelW = Math.floor(logicalWidth * dpr);
+            const pixelH = Math.floor(logicalHeight * dpr);
+
+            if (pixelW <= 0 || pixelH <= 0) return;
+
+            // Guardar contenido previo si existe
+            if (specCanvas.width > 0 && specCanvas.height > 0) {
+                tempCanvas.width = specCanvas.width;
+                tempCanvas.height = specCanvas.height;
+                tempCtx.drawImage(specCanvas, 0, 0);
+            }
+
+            specCanvas.width = pixelW;
+            specCanvas.height = pixelH;
+            specCtx.fillStyle = '#030305';
+            specCtx.fillRect(0, 0, pixelW, pixelH);
+
+            if (tempCanvas.width > 0 && tempCanvas.height > 0) {
+                specCtx.drawImage(tempCanvas, 0, 0, pixelW, pixelH);
+            }
+
+            tempCanvas.width = pixelW;
+            tempCanvas.height = pixelH;
+
+            overlayCanvas.width = pixelW;
+            overlayCanvas.height = pixelH;
+            overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            drawOverlay();
+        }
+
+        window.addEventListener('resize', resizeCanvases);
+
+        /**
+         * 6. MOTOR DE AUDIO (WEB AUDIO API: MICRÓFONO Y MODO DEMO)
+         */
+        function stopCurrentAudio() {
+            if (demoInterval) {
+                clearInterval(demoInterval);
+                demoInterval = null;
+            }
+            demoNodes.forEach(node => {
+                try { node.stop(); node.disconnect(); } catch (e) {}
+            });
+            demoNodes = [];
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            if (sourceNode) {
+                try { sourceNode.disconnect(); } catch (e) {}
+                sourceNode = null;
+            }
+        }
+
+        async function startMicrophone() {
+            try {
+                stopCurrentAudio();
+                if (!audioCtx) {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    audioCtx = new AudioContextClass();
+                }
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+
+                // Desactivar filtros de voz para obtener respuesta plana real
+                const constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                };
+
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+
+                setupAnalyser();
+                sourceNode.connect(analyser);
+
+                state.mode = 'mic';
+                state.isRunning = true;
+                state.isFrozen = false;
+                updateUIState();
+                hideWelcomeOverlay();
+                showToast('Micrófono activo • Respuesta plana sin filtros');
+
+                if (!animationFrameId) renderLoop();
+
+            } catch (err) {
+                console.error('Error al acceder al micrófono:', err);
+                const errorBox = document.getElementById('errorBox');
+                const errorDetail = document.getElementById('errorDetail');
+                errorBox.classList.remove('hidden');
+
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    errorDetail.textContent = 'Permiso denegado. Habilita el micrófono en los ajustes de tu navegador o usa el Modo Demo.';
+                } else if (err.name === 'NotFoundError') {
+                    errorDetail.textContent = 'No se detectó ningún micrófono en este dispositivo. Prueba el Modo Demo.';
+                } else {
+                    errorDetail.textContent = 'Error de hardware o contexto no seguro (HTTPS requerido). Puedes probar el Modo Demo.';
+                }
+            }
+        }
+
+        async function startDemoMode() {
+            try {
+                stopCurrentAudio();
+                if (!audioCtx) {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    audioCtx = new AudioContextClass();
+                }
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+
+                setupAnalyser();
+
+                // Crear un sintetizador con barrido armónico y modulación para visualizar patrones ricos
+                const masterGain = audioCtx.createGain();
+                masterGain.gain.value = 0.25;
+                masterGain.connect(analyser);
+                // También conectamos suavemente a los altavoces para que el usuario escuche la prueba
+                const outGain = audioCtx.createGain();
+                outGain.gain.value = 0.08;
+                masterGain.connect(outGain);
+                outGain.connect(audioCtx.destination);
+
+                // Oscilador 1: Barrido logarítmico continuo (Chirp)
+                const osc1 = audioCtx.createOscillator();
+                osc1.type = 'sine';
+                osc1.frequency.value = 220;
+
+                // Oscilador 2: Armónico superior con vibrato FM
+                const osc2 = audioCtx.createOscillator();
+                osc2.type = 'triangle';
+                osc2.frequency.value = 880;
+
+                const lfo = audioCtx.createOscillator();
+                lfo.frequency.value = 3.5;
+                const lfoGain = audioCtx.createGain();
+                lfoGain.gain.value = 180;
+                lfo.connect(lfoGain);
+                lfoGain.connect(osc2.frequency);
+
+                osc1.connect(masterGain);
+                osc2.connect(masterGain);
+
+                osc1.start();
+                osc2.start();
+                lfo.start();
+
+                demoNodes = [osc1, osc2, lfo, masterGain, outGain, lfoGain];
+
+                // Secuencia musical y de barrido cada 2.5 segundos
+                let step = 0;
+                const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99, 1046.50, 440.00];
+                demoInterval = setInterval(() => {
+                    if (!audioCtx || state.isFrozen) return;
+                    const now = audioCtx.currentTime;
+                    if (step % 4 === 0) {
+                        // Barrido ascendente
+                        osc1.frequency.cancelScheduledValues(now);
+                        osc1.frequency.setValueAtTime(110, now);
+                        osc1.frequency.exponentialRampToValueAtTime(3520, now + 2.2);
+                    } else {
+                        // Salto de nota musical
+                        const targetFreq = notes[step % notes.length];
+                        osc1.frequency.setTargetAtTime(targetFreq, now, 0.05);
+                        osc2.frequency.setTargetAtTime(targetFreq * 2.5, now, 0.08);
+                    }
+                    step++;
+                }, 2400);
+
+                state.mode = 'demo';
+                state.isRunning = true;
+                state.isFrozen = false;
+                updateUIState();
+                hideWelcomeOverlay();
+                showToast('Modo Demo activo • Sintetizador de tonos');
+
+                if (!animationFrameId) renderLoop();
+
+            } catch (err) {
+                console.error('Error iniciando modo demo:', err);
+                showToast('No se pudo iniciar el sintetizador de audio');
+            }
+        }
+
+        function setupAnalyser() {
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = state.fftSize;
+            analyser.smoothingTimeConstant = 0.25; // Respuesta ágil para transitorios
+            state.sampleRate = audioCtx.sampleRate;
+            freqDataArray = new Float32Array(analyser.frequencyBinCount);
+            updateTelemetryHeader();
+        }
+
+        /**
+         * 7. RENDERIZADO DEL ESPECTROGRAMA EN CASCADA (60 FPS)
+         */
+        function renderLoop() {
+            animationFrameId = requestAnimationFrame(renderLoop);
+
+            if (!state.isRunning || state.isFrozen || !analyser) return;
+
+            analyser.getFloatFrequencyData(freqDataArray);
+
+            const w = specCanvas.width;
+            const h = specCanvas.height;
+            if (w === 0 || h === 0) return;
+
+            const binCount = freqDataArray.length;
+            const nyquist = state.sampleRate / 2;
+            const effMinDb = state.minDb - state.gainOffsetDb;
+            const effMaxDb = state.maxDb - state.gainOffsetDb;
+            const dbRange = effMaxDb - effMinDb;
+
+            // Calcular frecuencia pico y dB máximo para la barra superior
+            let maxVal = -Infinity;
+            let maxBin = 0;
+            for (let i = 1; i < binCount; i++) {
+                if (freqDataArray[i] > maxVal) {
+                    maxVal = freqDataArray[i];
+                    maxBin = i;
+                }
+            }
+            const peakFreq = (maxBin * nyquist) / binCount;
+            updatePeakTelemetry(peakFreq, maxVal);
+
+            // Velocidad de desplazamiento en píxeles físicos por frame
+            const stepPx = Math.max(1, Math.round(1.5 * dpr));
+
+            if (state.direction === 'horizontal') {
+                // Desplazar imagen existente hacia la izquierda
+                specCtx.drawImage(specCanvas, stepPx, 0, w - stepPx, h, 0, 0, w - stepPx, h);
+
+                // Crear nueva columna vertical en el borde derecho
+                const colImg = specCtx.createImageData(stepPx, h);
+                const data = colImg.data;
+
+                for (let y = 0; y < h; y++) {
+                    // y = 0 es arriba (agudos), y = h-1 es abajo (graves)
+                    const norm = 1 - (y / (h - 1));
+                    const freq = normToFreq(norm);
+                    const binFloat = (freq / nyquist) * binCount;
+                    const bin0 = Math.floor(binFloat);
+                    const bin1 = Math.min(binCount - 1, bin0 + 1);
+                    const frac = binFloat - bin0;
+
+                    // Interpolación lineal entre bins FFT para suavidad en frecuencias bajas
+                    const db = bin0 < binCount
+                        ? freqDataArray[bin0] * (1 - frac) + freqDataArray[bin1] * frac
+                        : -120;
+
+                    const normAmp = Math.max(0, Math.min(1, (db - effMinDb) / dbRange));
+                    const colorIdx = Math.floor(normAmp * 255) * 4;
+
+                    const r = colorLUT[colorIdx];
+                    const g = colorLUT[colorIdx + 1];
+                    const b = colorLUT[colorIdx + 2];
+
+                    for (let sx = 0; sx < stepPx; sx++) {
+                        const idx = (y * stepPx + sx) * 4;
+                        data[idx] = r;
+                        data[idx + 1] = g;
+                        data[idx + 2] = b;
+                        data[idx + 3] = 255;
+                    }
+                }
+                specCtx.putImageData(colImg, w - stepPx, 0);
+
+            } else {
+                // Modo Vertical: Desplazar imagen existente hacia arriba (de abajo hacia arriba)
+                specCtx.drawImage(specCanvas, 0, stepPx, w, h - stepPx, 0, 0, w, h - stepPx);
+
+                // Crear nueva fila horizontal en el borde inferior
+                const rowImg = specCtx.createImageData(w, stepPx);
+                const data = rowImg.data;
+
+                for (let x = 0; x < w; x++) {
+                    // x = 0 es izquierda (graves), x = w-1 es derecha (agudos)
+                    const norm = x / (w - 1);
+                    const freq = normToFreq(norm);
+                    const binFloat = (freq / nyquist) * binCount;
+                    const bin0 = Math.floor(binFloat);
+                    const bin1 = Math.min(binCount - 1, bin0 + 1);
+                    const frac = binFloat - bin0;
+
+                    const db = bin0 < binCount
+                        ? freqDataArray[bin0] * (1 - frac) + freqDataArray[bin1] * frac
+                        : -120;
+
+                    const normAmp = Math.max(0, Math.min(1, (db - effMinDb) / dbRange));
+                    const colorIdx = Math.floor(normAmp * 255) * 4;
+
+                    const r = colorLUT[colorIdx];
+                    const g = colorLUT[colorIdx + 1];
+                    const b = colorLUT[colorIdx + 2];
+
+                    for (let sy = 0; sy < stepPx; sy++) {
+                        const idx = (sy * w + x) * 4;
+                        data[idx] = r;
+                        data[idx + 1] = g;
+                        data[idx + 2] = b;
+                        data[idx + 3] = 255;
+                    }
+                }
+                specCtx.putImageData(rowImg, 0, h - stepPx);
+            }
+        }
+
+        /**
+         * 8. CAPA SUPERPUESTA (EJE DE FRECUENCIAS Y RETÍCULO TÁCTIL)
+         */
+        const AXIS_FREQS = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 16000];
+
+        function drawOverlay() {
+            overlayCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+            overlayCtx.font = '500 10px "JetBrains Mono", monospace';
+            overlayCtx.textBaseline = 'middle';
+
+            // 1. Dibujar marcas del eje de frecuencias
+            AXIS_FREQS.forEach(freq => {
+                if (freq < state.minFreq || freq > state.sampleRate / 2) return;
+                const norm = freqToNorm(freq);
+                const label = freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
+
+                if (state.direction === 'horizontal') {
+                    // Eje vertical a la derecha
+                    const y = (1 - norm) * logicalHeight;
+                    if (y < 14 || y > logicalHeight - 14) return;
+
+                    // Línea guía sutil
+                    overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+                    overlayCtx.lineWidth = 1;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(logicalWidth - 36, y);
+                    overlayCtx.lineTo(logicalWidth, y);
+                    overlayCtx.stroke();
+
+                    // Pastilla de texto legible
+                    overlayCtx.fillStyle = 'rgba(3, 3, 5, 0.65)';
+                    overlayCtx.fillRect(logicalWidth - 34, y - 7, 31, 14);
+                    overlayCtx.fillStyle = 'rgba(244, 244, 246, 0.85)';
+                    overlayCtx.textAlign = 'right';
+                    overlayCtx.fillText(label, logicalWidth - 5, y);
+
+                } else {
+                    // Eje horizontal en la parte inferior
+                    const x = norm * logicalWidth;
+                    if (x < 20 || x > logicalWidth - 20) return;
+
+                    overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                    overlayCtx.lineWidth = 1;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(x, logicalHeight - 22);
+                    overlayCtx.lineTo(x, logicalHeight);
+                    overlayCtx.stroke();
+
+                    overlayCtx.fillStyle = 'rgba(3, 3, 5, 0.65)';
+                    overlayCtx.fillRect(x - 14, logicalHeight - 20, 28, 14);
+                    overlayCtx.fillStyle = 'rgba(244, 244, 246, 0.85)';
+                    overlayCtx.textAlign = 'center';
+                    overlayCtx.fillText(label, x, logicalHeight - 13);
+                }
+            });
+
+            // 2. Dibujar Retículo Interactivo (Crosshair) al tocar o arrastrar
+            if (state.crosshair.active) {
+                const cx = state.crosshair.x;
+                const cy = state.crosshair.y;
+
+                // Calcular frecuencia según la dirección de visualización
+                const norm = state.direction === 'horizontal'
+                    ? 1 - (cy / logicalHeight)
+                    : (cx / logicalWidth);
+
+                const targetFreq = normToFreq(norm);
+                const noteStr = freqToNote(targetFreq);
+                const freqStr = formatFreq(targetFreq);
+
+                // Líneas cruzadas de alta visibilidad
+                overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+                overlayCtx.lineWidth = 1;
+                overlayCtx.setLineDash([4, 4]);
+
+                overlayCtx.beginPath();
+                overlayCtx.moveTo(0, cy);
+                overlayCtx.lineTo(logicalWidth, cy);
+                overlayCtx.moveTo(cx, 0);
+                overlayCtx.lineTo(cx, logicalHeight);
+                overlayCtx.stroke();
+                overlayCtx.setLineDash([]);
+
+                // Punto central brillante
+                overlayCtx.fillStyle = '#f97316';
+                overlayCtx.beginPath();
+                overlayCtx.arc(cx, cy, 5, 0, Math.PI * 2);
+                overlayCtx.fill();
+                overlayCtx.strokeStyle = '#ffffff';
+                overlayCtx.lineWidth = 1.5;
+                overlayCtx.stroke();
+
+                // Etiqueta flotante inteligente (evita salirse de los bordes en móvil)
+                const boxW = 118;
+                const boxH = 38;
+                let boxX = cx + 14;
+                let boxY = cy - boxH - 12;
+
+                if (boxX + boxW > logicalWidth - 8) boxX = cx - boxW - 14;
+                if (boxY < 10) boxY = cy + 16;
+
+                // Fondo de tarjeta HUD
+                overlayCtx.fillStyle = 'rgba(13, 14, 18, 0.92)';
+                overlayCtx.strokeStyle = 'rgba(249, 115, 22, 0.8)';
+                overlayCtx.lineWidth = 1.2;
+                roundRect(overlayCtx, boxX, boxY, boxW, boxH, 10);
+                overlayCtx.fill();
+                overlayCtx.stroke();
+
+                // Texto de frecuencia y nota
+                overlayCtx.textAlign = 'left';
+                overlayCtx.fillStyle = '#fb923c';
+                overlayCtx.font = 'bold 12px "JetBrains Mono", monospace';
+                overlayCtx.fillText(freqStr, boxX + 10, boxY + 13);
+
+                overlayCtx.fillStyle = '#34d399';
+                overlayCtx.font = '500 11px "JetBrains Mono", monospace';
+                overlayCtx.fillText(`Nota: ${noteStr}`, boxX + 10, boxY + 27);
+            }
+        }
+
+        function roundRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+        }
+
+        /**
+         * 9. INTERACCIÓN TÁCTIL Y RATÓN SOBRE EL CANVAS
+         */
+        function handlePointerDown(e) {
+            if (!state.isRunning) return;
+            updateCrosshairFromEvent(e);
+        }
+
+        function handlePointerMove(e) {
+            if (!state.crosshair.active) return;
+            updateCrosshairFromEvent(e);
+        }
+
+        function handlePointerUp() {
+            // Si está congelado, mantenemos el retículo visible para facilitar lectura; si está en vivo, lo ocultamos al soltar
+            if (!state.isFrozen) {
+                state.crosshair.active = false;
+                drawOverlay();
+            }
+        }
+
+        function updateCrosshairFromEvent(e) {
+            const rect = container.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            state.crosshair.active = true;
+            state.crosshair.x = Math.max(0, Math.min(logicalWidth, clientX - rect.left));
+            state.crosshair.y = Math.max(0, Math.min(logicalHeight, clientY - rect.top));
+            drawOverlay();
+        }
+
+        container.addEventListener('pointerdown', handlePointerDown);
+        container.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+
+        /**
+         * 10. ACTUALIZACIÓN DE INTERFAZ Y TELEMETRÍA
+         */
+        let lastTelemetryTime = 0;
+        function updatePeakTelemetry(freq, db) {
+            const now = performance.now();
+            if (now - lastTelemetryTime < 90) return; // Actualizar texto ~11 veces/seg para lectura cómoda
+            lastTelemetryTime = now;
+
+            const freqEl = document.getElementById('peakFreqDisplay');
+            const noteEl = document.getElementById('peakNoteDisplay');
+            const dbEl = document.getElementById('peakDbDisplay');
+
+            if (db < -95 || !isFinite(db)) {
+                freqEl.textContent = '--- Hz';
+                noteEl.textContent = '--';
+                dbEl.textContent = '-∞ dB';
+            } else {
+                freqEl.textContent = formatFreq(freq);
+                noteEl.textContent = freqToNote(freq);
+                dbEl.textContent = `${Math.round(db)} dB`;
+            }
+        }
+
+        function updateTelemetryHeader() {
+            const srKhz = (state.sampleRate / 1000).toFixed(1);
+            document.getElementById('sampleRateText').textContent = `${srKhz} kHz • FFT ${state.fftSize}`;
+        }
+
+        function updateUIState() {
+            const statusBadge = document.getElementById('statusBadge');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const btnFreeze = document.getElementById('btnFreeze');
+            const freezeLabel = document.getElementById('freezeLabel');
+            const freezeIcon = document.getElementById('freezeIcon');
+            const sourceLabel = document.getElementById('sourceLabel');
+
+            if (state.isFrozen) {
+                statusBadge.className = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-amber-950/80 text-amber-400 border border-amber-800/60';
+                statusDot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400';
+                statusText.textContent = 'PAUSA';
+
+                btnFreeze.className = 'flex-[1.4] py-2.5 px-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-zinc-950 font-bold shadow-lg shadow-emerald-500/25 flex flex-col items-center justify-center gap-0.5 transition';
+                freezeLabel.textContent = 'Reanudar';
+                freezeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />';
+            } else if (state.isRunning) {
+                statusBadge.className = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-800/60';
+                statusDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot';
+                statusText.textContent = state.mode === 'demo' ? 'DEMO' : 'EN VIVO';
+
+                btnFreeze.className = 'flex-[1.4] py-2.5 px-3 rounded-2xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white font-semibold shadow-lg shadow-orange-500/25 flex flex-col items-center justify-center gap-0.5 transition';
+                freezeLabel.textContent = 'Congelar';
+                freezeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />';
+            }
+
+            sourceLabel.textContent = state.mode === 'demo' ? 'Modo Demo' : 'Micrófono';
+        }
+
+        function hideWelcomeOverlay() {
+            const overlay = document.getElementById('welcomeOverlay');
+            overlay.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => overlay.classList.add('hidden'), 300);
+        }
+
+        let toastTimeout = null;
+        function showToast(msg) {
+            const toast = document.getElementById('toastNotification');
+            document.getElementById('toastMessage').textContent = msg;
+            toast.classList.remove('hidden');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 2600);
+        }
+
+        /**
+         * 11. EVENTOS DE BOTONES Y CONTROLES ERGONÓMICOS
+         */
+        document.getElementById('btnStartMic').addEventListener('click', startMicrophone);
+        document.getElementById('btnStartDemo').addEventListener('click', startDemoMode);
+
+        // Alternar entre Micrófono y Demo desde la barra inferior
+        document.getElementById('btnToggleSource').addEventListener('click', () => {
+            if (!state.isRunning) {
+                startMicrophone();
+                return;
+            }
+            if (state.mode === 'mic') {
+                startDemoMode();
+            } else {
+                startMicrophone();
+            }
+        });
+
+        // Botón Congelar / Reanudar (Freeze)
+        document.getElementById('btnFreeze').addEventListener('click', () => {
+            if (!state.isRunning) {
+                startMicrophone();
+                return;
+            }
+            state.isFrozen = !state.isFrozen;
+            if (!state.isFrozen) {
+                state.crosshair.active = false;
+                drawOverlay();
+            } else {
+                showToast('Imagen congelada • Toca para inspeccionar frecuencias');
+            }
+            updateUIState();
+        });
+
+        // Botón Capturar Imagen PNG (Combina espectrograma + eje de frecuencias + marca de agua)
+        document.getElementById('btnSnapshot').addEventListener('click', () => {
+            if (!state.isRunning) {
+                showToast('Inicia el audio primero para capturar');
+                return;
+            }
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = specCanvas.width;
+            exportCanvas.height = specCanvas.height;
+            const eCtx = exportCanvas.getContext('2d');
+
+            eCtx.drawImage(specCanvas, 0, 0);
+            eCtx.drawImage(overlayCanvas, 0, 0);
+
+            // Sello discreto de telemetría
+            eCtx.fillStyle = 'rgba(3, 3, 5, 0.75)';
+            eCtx.fillRect(12 * dpr, 12 * dpr, 210 * dpr, 26 * dpr);
+            eCtx.fillStyle = '#f97316';
+            eCtx.font = `bold ${11 * dpr}px "JetBrains Mono", monospace`;
+            eCtx.fillText(`SPECTRALAB • ${state.scale.toUpperCase()} • FFT ${state.fftSize}`, 20 * dpr, 29 * dpr);
+
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            link.download = `espectrograma-${timestamp}.png`;
+            link.href = exportCanvas.toDataURL('image/png');
+            link.click();
+
+            showToast('Captura PNG guardada');
+        });
+
+        // Desplegar / Ocultar Panel de Ajustes
+        document.getElementById('btnSettings').addEventListener('click', () => {
+            const drawer = document.getElementById('settingsDrawer');
+            drawer.classList.toggle('hidden');
+            // Reajustar tamaño del canvas suavemente tras abrir/cerrar drawer
+            setTimeout(resizeCanvases, 20);
+        });
+
+        // Cambiar dirección de cascada (Horizontal <-> Vertical)
+        document.getElementById('btnDirection').addEventListener('click', () => {
+            state.direction = state.direction === 'horizontal' ? 'vertical' : 'horizontal';
+            document.getElementById('dirLabel').textContent = state.direction === 'horizontal' ? 'HOR' : 'VER';
+            
+            const dirIcon = document.getElementById('dirIcon');
+            if (state.direction === 'horizontal') {
+                dirIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />';
+            } else {
+                dirIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />';
+            }
+
+            // Limpiar lienzo al cambiar orientación para evitar distorsión
+            specCtx.fillStyle = '#030305';
+            specCtx.fillRect(0, 0, specCanvas.width, specCanvas.height);
+            state.crosshair.active = false;
+            drawOverlay();
+            showToast(state.direction === 'horizontal' ? 'Cascada Horizontal (Der → Izq)' : 'Cascada Vertical (Abajo → Arriba)');
+        });
+
+        // Slider de Ganancia / Sensibilidad
+        document.getElementById('gainSlider').addEventListener('input', (e) => {
+            state.gainOffsetDb = parseInt(e.target.value, 10);
+            const sign = state.gainOffsetDb > 0 ? '+' : '';
+            document.getElementById('gainValueLabel').textContent = `${sign}${state.gainOffsetDb} dB`;
+            document.getElementById('legendMinDb').textContent = `${state.minDb - state.gainOffsetDb}dB`;
+            document.getElementById('legendMaxDb').textContent = `${state.maxDb - state.gainOffsetDb}dB`;
+        });
+
+        // Selector de Paleta de Color
+        document.getElementById('paletteSelect').addEventListener('change', (e) => {
+            state.palette = e.target.value;
+            buildColorLUT(state.palette);
+        });
+
+        // Selector de Escala (Logarítmica / Lineal)
+        document.getElementById('scaleSelect').addEventListener('change', (e) => {
+            state.scale = e.target.value;
+            drawOverlay();
+        });
+
+        // Selector de Resolución FFT
+        document.getElementById('fftSelect').addEventListener('change', (e) => {
+            state.fftSize = parseInt(e.target.value, 10);
+            if (analyser) {
+                analyser.fftSize = state.fftSize;
+                freqDataArray = new Float32Array(analyser.frequencyBinCount);
+            }
+            updateTelemetryHeader();
+        });
+
+        /**
+         * 12. INICIALIZACIÓN AL CARGAR LA PÁGINA
+         */
+        window.addEventListener('DOMContentLoaded', () => {
+            buildColorLUT(state.palette);
+            resizeCanvases();
+        });
+    </script>
+</body>
+</html>
